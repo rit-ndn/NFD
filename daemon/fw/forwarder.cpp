@@ -40,6 +40,9 @@
 
 #include <iostream>
 
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 namespace nfd {
 
 NFD_LOG_INIT(Forwarder);
@@ -294,7 +297,17 @@ Forwarder::sendShortcutOPTinterests(const Interest& interest, const FaceEndpoint
       entryName = entryName.getSubName(0,1); // starting at component 0, get 1 component (/nescoSCOPT only)
       std::string entryString = entryName.toUri();
       //NFD_LOG_DEBUG("CABEEEshortcutOPT, fib entry name component 0 is "<< entryString);
-      if (entryString == "/nescoSCOPT")
+
+      auto dagParameterFromInterest = interest.getApplicationParameters();
+      std::string dagString = std::string(reinterpret_cast<const char*>(dagParameterFromInterest.value()), dagParameterFromInterest.value_size());
+      json dagObject = json::parse(dagString);
+      ndn::Name serviceName;
+      serviceName = fib_iterator->getPrefix();
+      serviceName = serviceName.getSubName(1,1); // starting at component 1, get 1 component (service name only)
+      std::string serviceString = serviceName.toUri();
+
+      // only generate shorcutOPT interest if the incoming interest is for /nescoSCOPT, and this fib entry is not for the service the interest is for (in which case the interest is forwarded to the service normally later on) 
+      if (entryString == "/nescoSCOPT" && serviceString != dagObject["head"])
       {
         //NFD_LOG_DEBUG("CABEEEshortcutOPT, fib entry has nescoSCOPT name\n");
         if (fib_iterator->hasNextHops())

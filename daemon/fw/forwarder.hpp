@@ -258,6 +258,9 @@ private:
 
   // allow Strategy (base class) to enter pipelines
   friend ::nfd::fw::Strategy;
+
+  time::steady_clock::time_point m_interestProcessingTimeStart;
+  time::steady_clock::time_point m_interestProcessingTimeEnd;
 };
 
 } // namespace nfd

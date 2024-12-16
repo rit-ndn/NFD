@@ -96,6 +96,7 @@ Forwarder::Forwarder(FaceTable& faceTable)
 void
 Forwarder::onIncomingInterest(const Interest& interest, const FaceEndpoint& ingress)
 {
+  m_interestProcessingTimeStart = time::steady_clock::now();
   // get first part of the name, if it equals /nesco or /nescoSCOPT or /orchA, or /orchB and it's coming from a local face (our application), then print INFO message
   // this effectively counts the number of interest packets that are generated at the consumer (including the custom forwarders)
   ndn::Name simpleName;
@@ -248,6 +249,8 @@ Forwarder::onContentStoreMiss(const Interest& interest, const FaceEndpoint& ingr
       if (simpleStringName == "/nescoSCOPT" && ingress.face.getScope() == ndn::nfd::FACE_SCOPE_NON_LOCAL)
         this->sendShortcutOPTinterests(interest, ingress, pitEntry);
     }
+    m_interestProcessingTimeEnd = time::steady_clock::now();
+    NFD_LOG_INFO("interestProcessingTimeNFD: " << (m_interestProcessingTimeEnd - m_interestProcessingTimeStart));
     return;
   }
 
@@ -257,6 +260,9 @@ Forwarder::onContentStoreMiss(const Interest& interest, const FaceEndpoint& ingr
   
   if (simpleStringName == "/nescoSCOPT" && ingress.face.getScope() == ndn::nfd::FACE_SCOPE_NON_LOCAL)
     this->sendShortcutOPTinterests(interest, ingress, pitEntry);
+
+  m_interestProcessingTimeEnd = time::steady_clock::now();
+  NFD_LOG_INFO("interestProcessingTimeNFD: " << (m_interestProcessingTimeEnd - m_interestProcessingTimeStart));
 
 }
 void

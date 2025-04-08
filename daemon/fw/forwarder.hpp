@@ -218,6 +218,8 @@ private:
   sendShortcutOPTinterests(const Interest& interest, const FaceEndpoint& ingress,
                      const shared_ptr<pit::Entry>& pitEntry);
 
+  void
+  sendCsUpdateInterest(const Data& data);
   /** \brief Insert Nonce to Dead Nonce List if necessary.
    *  \param upstream if null, insert Nonces from all out-records;
    *                  if not null, insert Nonce only on the out-records of this face

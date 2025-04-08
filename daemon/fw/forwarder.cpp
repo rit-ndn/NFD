@@ -37,6 +37,7 @@
 
 #include <ndn-cxx/lp/pit-token.hpp>
 #include <ndn-cxx/lp/tags.hpp>
+#include <ndn-cxx/util/io.hpp>
 
 #include <iostream>
 
@@ -279,7 +280,7 @@ Forwarder::sendShortcutOPTinterests(const Interest& interest, const FaceEndpoint
   }
   
   char method = 2;
-  if(method==1) // itereate through all faces of this router, send interest to all local faces
+  if(method==1) // iterate through all faces of this router, send interest to all local faces
   {
     for (FaceTable::const_iterator it = m_faceTable.begin(); it != m_faceTable.end(); ++it) {
       Face* localFace = &*it;
@@ -419,6 +420,98 @@ Forwarder::onInterestFinalize(const shared_ptr<pit::Entry>& pitEntry)
 }
 
 void
+Forwarder::sendCsUpdateInterest(const Data& data)
+{
+  // generate interest (/PREFIX/csUpdate) to the local application face where the csUpdater app is running, containing cached data name (not data content) as application parameters.
+  // csUpdate application will look for this name, and upon receiving will register the cached data name into RIB/FIB
+
+  shared_ptr<Interest> interestCsUpdate = make_shared<Interest>();
+  interestCsUpdate->setName("/nesco/csUpdate");
+
+  std::string csNameString = data.getName().toUri();
+  //std::cout << "csNameString: " << csNameString << std::endl;
+
+  std::shared_ptr<ndn::Buffer> csNameApplicationParameters;
+  std::istringstream is(csNameString);
+  csNameApplicationParameters = ndn::io::loadBuffer(is, ndn::io::NO_ENCODING);
+  interestCsUpdate->setApplicationParameters(csNameApplicationParameters);
+
+
+  char method = 1;
+  if(method==1) // iterate through all faces of this router, send interest to all local faces
+  {
+    for (FaceTable::const_iterator it = m_faceTable.begin(); it != m_faceTable.end(); ++it) {
+      Face* localFace = &*it;
+      if (localFace->getScope() != ndn::nfd::FACE_SCOPE_NON_LOCAL) {
+        NFD_LOG_DEBUG("cabeee csUpdate, generating interest " << interestCsUpdate << ", for local face " << localFace << std::endl);
+        //NFD_LOG_INFO("cabeee csUpdate, generating interest " << interestCsUpdate << ", for local face " << localFace << std::endl);
+        localFace->sendInterest(*interestCsUpdate);
+      }
+    }
+
+  }
+  /*
+  if (method==2) // iterate through all fib entries, then through all faces(hops) for each entry, and if entry is for /nescoSCOPT AND it is a local face, then send interest.
+  {
+    //NFD_LOG_DEBUG("cabeee csUpdate, sending /shortcutOPT interest to apps on local faces to generate new interests for inputs into locally hosted services.");
+
+    //look at FIB, and see if any services are hosted on a local face. If so, send interestCsUpdate out through that face.
+    for (fib::Fib::const_iterator fib_iterator = m_fib.begin(); fib_iterator != m_fib.end(); ++fib_iterator)
+    {
+      //NFD_LOG_DEBUG("cabeee csUpdate, looking at fib entry\n");
+      ndn::Name entryName;
+      entryName = fib_iterator->getPrefix();
+      entryName = entryName.getSubName(0,1); // starting at component 0, get 1 component (/nesco only)
+      std::string entryString = entryName.toUri();
+      //NFD_LOG_DEBUG("cabeee csUpdate, fib entry name component 0 is "<< entryString);
+
+      auto dagParameterFromInterest = interest.getApplicationParameters();
+      std::string dagString = std::string(reinterpret_cast<const char*>(dagParameterFromInterest.value()), dagParameterFromInterest.value_size());
+      json dagObject = json::parse(dagString);
+      ndn::Name serviceName;
+      serviceName = fib_iterator->getPrefix();
+      serviceName = serviceName.getSubName(1,1); // starting at component 1, get 1 component (service name only)
+      std::string serviceString = serviceName.toUri();
+      //NFD_LOG_DEBUG("cabeee csUpdate, fib entry name component 1 is "<< serviceString);
+      //NFD_LOG_DEBUG("cabeee csUpdate, interest head is "<< dagObject["head"]);
+
+      // only generate shorcutOPT interest if the incoming interest is for /nesco, and this fib entry is not for the service the interest is for (in which case the interest is forwarded to the service normally later on) 
+      if (entryString == "/nesco" && serviceString != dagObject["head"])
+      {
+        //NFD_LOG_DEBUG("cabeee csUpdate, fib entry has nesco name, and entry service name is not dagObject head!\n");
+        if (fib_iterator->hasNextHops())
+        {
+          // figure out the faceID of all the nexthops in the list, and send interest to ones that are local
+          //fib::NextHopList hopList = fib_iterator->getNextHops();
+          const fib::NextHopList& hopList = fib_iterator->getNextHops();
+          //for (auto &hop_iterator : hopList)
+          for (nfd::fib::NextHopList::const_iterator hop_iterator = hopList.begin(); hop_iterator != hopList.end(); ++hop_iterator)
+          //for (nfd::fib::NextHopList::const_iterator hop_iterator = fib_iterator->getNextHops().begin(); hop_iterator != fib_iterator->getNextHops().end(); ++hop_iterator)
+          {
+            //NFD_LOG_DEBUG("cabeee csUpdate, looking at all hops for this fib entry\n");
+            //Face thisFace = hop_iterator->getFace();
+            //if (thisFace.getScope() != ndn::nfd::FACE_SCOPE_NON_LOCAL)
+            //{
+              //thisFace.sendInterest(interestCsUpdate);
+            //}
+            if (hop_iterator->getFace().getScope() != ndn::nfd::FACE_SCOPE_NON_LOCAL)
+            {
+              //interestCsUpdate->setName(fib_iterator->getPrefix()); // give it the hosted service name, instead of /nesco/csUpdate
+              ndn::Name scoptFullName;
+              scoptFullName = "/nesco/csUpdate" + fib_iterator->getPrefix().getSubName(1,1).toUri();
+              interestCsUpdate->setName(scoptFullName); // add the hosted service name to the full name: /nesco/csUpdate/<serviceName>
+              NFD_LOG_DEBUG("cabeee csUpdate, generating interest " << interestCsUpdate->getName().toUri() << ", for local face with faceID: " << hop_iterator->getFace().getId());
+              hop_iterator->getFace().sendInterest(*interestCsUpdate);
+            }
+          }
+        }
+      }
+    }
+  }
+  */
+}
+
+void
 Forwarder::onIncomingData(const Data& data, const FaceEndpoint& ingress)
 {
   data.setTag(make_shared<lp::IncomingFaceIdTag>(ingress.face.getId()));
@@ -444,6 +537,39 @@ Forwarder::onIncomingData(const Data& data, const FaceEndpoint& ingress)
 
   // CS insert
   m_cs.insert(data);
+  if (data.getName().getPrefix(1).toUri() == "/nesco")
+  {
+    if (ingress.face.getScope() == ndn::nfd::FACE_SCOPE_NON_LOCAL) { // only if data is coming from non-local face. (if coming from local, it's from a service, and thus there is no need to advertise)
+      if (false)
+      {
+        this->sendCsUpdateInterest(data);
+      }
+
+      if (true)
+      {
+        // can we simply tell NLSR to advertise this data's name? This would allow us to remove the ndn-cxx application that listens to /nesco/csUpdate
+        std::string cmdString = "nlsrc advertise ";
+        cmdString.append(data.getName().toUri());
+        cmdString.append(" &"); // put it in the background, so that NFD can continue below while nlsrc advertise runs (non-blocking)
+        //std::system("nlsrc advertise /nesco/dataname");
+        NFD_LOG_DEBUG("cabeee csUpdate, running command: " << cmdString << std::endl);
+        //NFD_LOG_INFO("cabeee csUpdate, running command: " << cmdString << std::endl);
+        std::system(cmdString.data());
+      }
+
+      if (false)
+      {
+        // TODO (fix): can we use nfd static routes, and just add the static route here? (just like using addOrigin and calculateNPossibleRoutes in the python scenario script)
+        std::string cmdString = "nfd-autoreg -i ";
+        cmdString.append(data.getName().toUri());
+        cmdString.append(" &"); // put it in the background, so that NFD can continue below while nlsrc advertise runs (non-blocking)
+        //std::system("nlsrc advertise /nesco/dataname");
+        NFD_LOG_DEBUG("cabeee csUpdate, running command: " << cmdString << std::endl);
+        //NFD_LOG_INFO("cabeee csUpdate, running command: " << cmdString << std::endl);
+        std::system(cmdString.data());
+      }
+    }
+  }
 
   // when only one PIT entry is matched, trigger strategy: after receive Data
   if (pitMatches.size() == 1) {

@@ -41,6 +41,8 @@
 
 #include <iostream>
 
+#include <boost/asio/post.hpp>
+
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
@@ -93,6 +95,8 @@ Forwarder::Forwarder(FaceTable& faceTable)
 
   m_strategyChoice.setDefaultStrategy(getDefaultStrategyName());
 }
+
+
 
 void
 Forwarder::onIncomingInterest(const Interest& interest, const FaceEndpoint& ingress)
@@ -189,7 +193,50 @@ Forwarder::onIncomingInterest(const Interest& interest, const FaceEndpoint& ingr
   else {
     this->onContentStoreMiss(interest, ingress, pitEntry);
   }
+
+
+
+  //TODO: add csContentName and the incoming face to the FIB (or RIB?).
+  
+  if(interest.getName().getPrefix(2).toUri() == "/nesco/csUpdate")
+  {
+
+    auto csParameterFromInterest = interest.getApplicationParameters();
+    std::string csContentName = std::string(reinterpret_cast<const char*>(csParameterFromInterest.value()), csParameterFromInterest.value_size());
+    std::cout << "NFD Forwarder: received interest for /nesco/csUpdate, with application parameters: " << csContentName << '\n';
+
+    // now add FIB entry for this name on the face it came from
+    //auto faceID = make_shared<lp::IncomingFaceIdTag>(ingress.face.getId());
+    auto faceID = ingress.face.getId();
+
+
+
+    /*auto paTag = interest.getTag<lp::PrefixAnnouncementTag>();
+    if (paTag != nullptr) {
+      this->addRoute(pitEntry, ingress.face, interest, *paTag->get().getPrefixAnn());
+    }*/
+  }
+
+
+
 }
+
+/*
+void
+Forwarder::addRoute(const shared_ptr<pit::Entry>& pitEntry, const Face& inFace,
+                               const Interest& interest, const ndn::PrefixAnnouncement& pa)
+{
+  boost::asio::post(getRibIoService(),
+    [pitEntryWeak = weak_ptr<pit::Entry>{pitEntry}, inFaceId = inFace.getId(), interest, pa] {
+      rib::Service::get().getRibManager().slAnnounce(pa, inFaceId, ROUTE_RENEW_LIFETIME,
+        [] (RibManager::SlAnnounceResult res) {
+          NFD_LOG_DEBUG("Add route via PrefixAnnouncement with result=" << res);
+        });
+    });
+}
+*/
+
+
 
 void
 Forwarder::onInterestLoop(const Interest& interest, const FaceEndpoint& ingress)
@@ -512,6 +559,40 @@ Forwarder::sendCsUpdateInterest(const Data& data)
 }
 
 void
+Forwarder::broadcastCsUpdateInterest(const Data& data)
+{
+  // generate interest (/PREFIX/csUpdate) containing cached data name (not data content) as application parameters.
+  // broadcast this interest to all nodes.
+  // NFD on all nodes will listen to it, decode the application parameters, and add FIB entries for face where they received it.
+
+  shared_ptr<Interest> interestCsUpdate = make_shared<Interest>();
+  interestCsUpdate->setName("/nesco/csUpdate");
+
+  std::string csNameString = data.getName().toUri();
+  //std::cout << "csNameString: " << csNameString << std::endl;
+
+  std::shared_ptr<ndn::Buffer> csNameApplicationParameters;
+  std::istringstream is(csNameString);
+  csNameApplicationParameters = ndn::io::loadBuffer(is, ndn::io::NO_ENCODING);
+  interestCsUpdate->setApplicationParameters(csNameApplicationParameters);
+
+
+  char method = 1;
+  if(method==1) // iterate through all faces of this router, send interest to all local faces
+  {
+    for (FaceTable::const_iterator it = m_faceTable.begin(); it != m_faceTable.end(); ++it) {
+      Face* localFace = &*it;
+      if (localFace->getScope() != ndn::nfd::FACE_SCOPE_NON_LOCAL) {
+        NFD_LOG_DEBUG("cabeee csUpdate, generating interest " << interestCsUpdate << ", for local face " << localFace << std::endl);
+        //NFD_LOG_INFO("cabeee csUpdate, generating interest " << interestCsUpdate << ", for local face " << localFace << std::endl);
+        localFace->sendInterest(*interestCsUpdate);
+      }
+    }
+
+  }
+}
+
+void
 Forwarder::onIncomingData(const Data& data, const FaceEndpoint& ingress)
 {
   data.setTag(make_shared<lp::IncomingFaceIdTag>(ingress.face.getId()));
@@ -540,12 +621,17 @@ Forwarder::onIncomingData(const Data& data, const FaceEndpoint& ingress)
   if (data.getName().getPrefix(1).toUri() == "/nesco")
   {
     if (ingress.face.getScope() == ndn::nfd::FACE_SCOPE_NON_LOCAL) { // only if data is coming from non-local face. (if coming from local, it's from a service, and thus there is no need to advertise)
+      if (true)
+      {
+        //broadcast interest /nesco/csUpdate/data/hash
+        this->broadcastCsUpdateInterest(data);
+      }
       if (false)
       {
         this->sendCsUpdateInterest(data);
       }
 
-      if (true)
+      if (false) // this one works, but uses NLSR, which is slow and not supported in ndnSIM
       {
         // can we simply tell NLSR to advertise this data's name? This would allow us to remove the ndn-cxx application that listens to /nesco/csUpdate
         std::string cmdString = "nlsrc advertise ";

@@ -314,8 +314,9 @@ Forwarder::sendShortcutOPTinterests(const Interest& interest, const FaceEndpoint
       //NFD_LOG_DEBUG("CABEEEshortcutOPT, fib entry name component 1 is "<< serviceString);
       //NFD_LOG_DEBUG("CABEEEshortcutOPT, interest head is "<< dagObject["head"]);
 
-      // only generate shorcutOPT interest if the incoming interest is for /nescoSCOPT, and this fib entry is not for the service the interest is for (in which case the interest is forwarded to the service normally later on) 
-      if (entryString == "/nescoSCOPT" && serviceString != dagObject["head"])
+      // only generate shorcutOPT interest if the incoming interest is for /nescoSCOPT, and this fib entry is not for the service the interest is for (in which case the interest is forwarded to the service normally later on), and the service we'd be generating an interest for is upstream in the pruned DAG we received. Hosted services from other branches are not dealt with in shortcutOPT.
+      //if (entryString == "/nescoSCOPT" && serviceString != dagObject["head"])
+      if (entryString == "/nescoSCOPT" && serviceString != dagObject["head"] && dagObject["dag"].contains(serviceString))
       {
         //NFD_LOG_DEBUG("CABEEEshortcutOPT, fib entry has nescoSCOPT name, and entry service name is not dagObject head!\n");
         if (fib_iterator->hasNextHops())
